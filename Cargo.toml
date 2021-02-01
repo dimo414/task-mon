@@ -14,10 +14,20 @@ include = [
     "README.md",
 ]
 
+[features]
+# If compiling on a system without OpenSSL installed, or cross-compiling for a different
+# architecture, enable this feature to compile OpenSSL as part of the build.
+# See https://docs.rs/openssl/#vendored
+static_ssl = ['openssl/vendored']
+
 [dependencies]
 clap = { version = "2.33.3", default_features = false, features = ["vec_map"] }
 subprocess = "0.2.6"
 ureq = { git = "https://github.com/algesten/ureq", branch = "main" }  # waiting for #311 to be released
+
+[dependencies.openssl]
+optional = true
+version = '0.10'
 
 [dev-dependencies]
 mockito = "0.29.0"
