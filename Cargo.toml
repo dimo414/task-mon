@@ -16,8 +16,8 @@ include = [
 
 [dependencies]
 clap = { version = "2.33.3", default_features = false, features = ["vec_map"] }
-reqwest = { version = "0.11", features = ["blocking"] }
 subprocess = "0.2.6"
+ureq = { git = "https://github.com/algesten/ureq", branch = "main" }  # waiting for #311 to be released
 
 [dev-dependencies]
 mockito = "0.29.0"

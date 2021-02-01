@@ -4,11 +4,10 @@
 
 use std::convert::TryFrom;
 use clap::{Arg, App};
-use reqwest::blocking::{Client, Response};
 use subprocess::{Exec, Redirection, ExitStatus, CaptureData, PopenConfig};
 use std::ffi::OsStr;
 use std::time::{Duration, Instant};
-use reqwest::Error;
+use ureq::{Agent, AgentBuilder, Error, Response};
 
 static MAX_BYTES_TO_POST: usize = 10000; // not 10KB, https://healthchecks.io/docs/attaching_logs/
 static MAX_STRING_TO_LOG: usize = 1000;
@@ -79,21 +78,22 @@ fn make_user_agent(custom: Option<&str>) -> String {
 }
 
 /// Pings the Healthchecks server to notify that the task denoted by the UUID is starting
-fn notify_start(client: &Client, verbose: bool, base_url: &str, uuid: &str) ->  Result<Response, Error> {
-    let req = client.get(&format!("{}/{}/start", base_url, uuid));
+fn notify_start(agent: &Agent, verbose: bool, base_url: &str, uuid: &str) -> Result<Response, Error> {
+    let req = agent.get(&format!("{}/{}/start", base_url, uuid));
     if verbose { eprintln!("Sending request: {:?}", req); }
-    req.send()?.error_for_status()
+    req.call()
 }
 
 /// Pings the Healthchecks server to notify that the task denoted by the UUID is done.
 /// If code is non-zero, the task will be considered failed.
-fn notify_complete(client: &Client, verbose: bool, base_url: &str, uuid: &str, code: u8, output: &str) -> Result<Response, Error> {
-    let mut req = client.post(&format!("{}/{}/{}", base_url, uuid, code));
-    if !output.is_empty() {
-        req = req.body(output.bytes().collect::<Vec<_>>());
-    }
+fn notify_complete(agent: &Agent, verbose: bool, base_url: &str, uuid: &str, code: u8, output: &str) -> Result<Response, Error> {
+    let req = agent.post(&format!("{}/{}/{}", base_url, uuid, code));
     if verbose { eprintln!("Sending request: {:?}", req); }
-    req.send()?.error_for_status()
+    if output.is_empty() {
+        req.call()
+    } else {
+        req.send_string(output)
+    }
 }
 
 struct AppState<'a> {
@@ -104,13 +104,13 @@ struct AppState<'a> {
     detailed: bool,
     env: bool,
     verbose: bool,
-    base_url: &'a str,
+    base_url: std::borrow::Cow<'a, str>,
     command: Vec<&'a str>,
 }
 
-fn run(state: AppState, http_client: Client) -> Result<Response, Error> {
+fn run(state: AppState, agent: Agent) -> Result<Response, Error> {
     if state.time {
-        if let Err(e) = notify_start(&http_client, state.verbose, state.base_url, state.uuid) {
+        if let Err(e) = notify_start(&agent, state.verbose, &state.base_url, state.uuid) {
             eprintln!("Failed to send start request: {:?}", e);
         }
     }
@@ -136,7 +136,7 @@ fn run(state: AppState, http_client: Client) -> Result<Response, Error> {
 
     // Trim replacement chars added by from_utf8_lossy since they are multi-byte and can actually
     // increase the length of the string.
-    notify_complete(&http_client, state.verbose, state.base_url, state.uuid, code, &output.trim_start_matches(|c| c=='�'))
+    notify_complete(&agent, state.verbose, &state.base_url, state.uuid, code, output.trim_start_matches(|c| c=='�'))
 }
 
 fn main() {
@@ -172,6 +172,7 @@ fn main() {
             .help("Write debugging details to stderr"))
         .arg(Arg::with_name("user_agent")
             .long("user_agent")
+            .value_name("USER_AGENT")
             .help("Customize the user-agent string sent to the Healthchecks.io server"))
         .arg(Arg::with_name("base_url")
             .long("base_url")
@@ -192,20 +193,19 @@ fn main() {
         detailed: matches.is_present("detailed"),
         env: matches.is_present("env"),
         verbose: matches.is_present("verbose"),
-        base_url: matches.value_of("base_url").expect("Has default"),
+        base_url: std::borrow::Cow::Borrowed(matches.value_of("base_url").expect("Has default")),
         command: matches.values_of("command").expect("Required").collect(),
     };
 
-    // TODO unit test against a mock/fake client: https://github.com/seanmonstar/reqwest/issues/154
-    // TODO support retries: https://github.com/seanmonstar/reqwest/issues/316
-    // TODO could potentially shrink the binary size by manually constructing requests with
+    // TODO support retries
+    // TODO could potentially shrink the binary size further by manually constructing requests with
     // https://doc.rust-lang.org/std/net/struct.TcpStream.html and https://docs.rs/native-tls/
-    let http_client = Client::builder()
+    let agent = AgentBuilder::new()
         .timeout(Duration::from_secs(10)) // https://healthchecks.io/docs/reliability_tips/
-        .user_agent(make_user_agent(matches.value_of("user_agent")))
-        .build().expect("http_client");
+        .user_agent(&make_user_agent(matches.value_of("user_agent")))
+        .build();
 
-    run(state, http_client).expect("Failed to reach Healthchecks.io");
+    run(state, agent).expect("Failed to reach Healthchecks.io");
 }
 
 #[cfg(test)]
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn start() {
         let m = mockito::mock("GET", "/start/start").with_status(200).create();
-        let response = notify_start(&Client::new(), false, &mockito::server_url(), "start");
+        let response = notify_start(&Agent::new(), false, &mockito::server_url(), "start");
         m.assert();
         response.unwrap();
     }
@@ -248,8 +248,8 @@ mod tests {
     fn ping() {
         let suc_m = mockito::mock("POST", "/ping/0").match_body("foo bar").with_status(200).create();
         let fail_m = mockito::mock("POST", "/ping/10").match_body("bar baz").with_status(200).create();
-        let suc_response = notify_complete(&Client::new(), false, &mockito::server_url(), "ping",0, "foo bar");
-        let fail_response = notify_complete(&Client::new(), false, &mockito::server_url(), "ping",10, "bar baz");
+        let suc_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",0, "foo bar");
+        let fail_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",10, "bar baz");
         suc_m.assert();
         fail_m.assert();
         suc_response.unwrap();
@@ -259,7 +259,7 @@ mod tests {
     mod integ {
         use super::*;
 
-        fn state<'a>(base_url: &'a str, uuid: &'a str, command: Vec<&'a str>) -> AppState<'a> {
+        fn state<'a>(uuid: &'a str, command: Vec<&'a str>) -> AppState<'a> {
             AppState {
                 uuid,
                 time: false,
@@ -268,7 +268,7 @@ mod tests {
                 detailed: false,
                 env: false,
                 verbose: false,
-                base_url,
+                base_url: std::borrow::Cow::Owned(mockito::server_url()),
                 command,
             }
         }
@@ -277,9 +277,8 @@ mod tests {
         fn success() {
             let m = mockito::mock("POST", "/success/0").match_body("hello\n").with_status(200).create();
 
-            let server = mockito::server_url();
-            let s = state(&server, "success", vec!("echo", "hello"));
-            let res = run(s, Client::new());
+            let s = state("success", vec!("echo", "hello"));
+            let res = run(s, Agent::new());
             m.assert();
             res.unwrap();
         }
@@ -289,10 +288,9 @@ mod tests {
             let m = mockito::mock("POST", "/fail/5")
                 .match_body("failed\n").with_status(200).create();
 
-            let server = mockito::server_url();
-            let s = state(&server, "fail", vec!("bash", "-c", "echo failed >&2; exit 5"));
+            let s = state("fail", vec!("bash", "-c", "echo failed >&2; exit 5"));
 
-            let res = run(s, Client::new());
+            let res = run(s, Agent::new());
             m.assert();
             res.unwrap();
         }
@@ -302,10 +300,9 @@ mod tests {
             // Unused, but necessary to isolate separate tests, per lipanski/mockito#111
             let m = mockito::mock("GET", "/").with_status(500).create();
 
-            let server = mockito::server_url();
-            let s = state(&server, "unreachable", vec!("true"));
+            let s = state("unreachable", vec!("true"));
 
-            run(s, Client::new()).expect_err("Should fail.");
+            run(s, Agent::new()).expect_err("Should fail.");
             m.expect(0);
         }
 
@@ -315,11 +312,10 @@ mod tests {
             let done_m = mockito::mock("POST", "/timed/0")
                 .match_body("hello\n").with_status(200).create();
 
-            let server = mockito::server_url();
-            let mut s = state(&server, "timed", vec!("echo", "hello"));
+            let mut s = state("timed", vec!("echo", "hello"));
             s.time = true;
 
-            let res = run(s, Client::new());
+            let res = run(s, Agent::new());
             start_m.assert();
             done_m.assert();
             res.unwrap();
@@ -341,10 +337,9 @@ mod tests {
                 )))
                 .with_status(200).create();
 
-            let server = mockito::server_url();
-            let s = state(&server, "long_output", vec!("echo", &msg));
+            let s = state("long_output", vec!("echo", &msg));
 
-            let res = run(s, Client::new());
+            let res = run(s, Agent::new());
             m.assert();
             res.unwrap();
         }
@@ -354,11 +349,10 @@ mod tests {
             let m = mockito::mock("POST", "/quiet/0")
                 .match_body(mockito::Matcher::Missing).with_status(200).create();
 
-            let server = mockito::server_url();
-            let mut s = state(&server, "quiet", vec!("echo", "quiet!"));
+            let mut s = state("quiet", vec!("echo", "quiet!"));
             s.capture_output = false;
 
-            let res = run(s, Client::new());
+            let res = run(s, Agent::new());
             m.assert();
             res.unwrap();
         }
@@ -369,11 +363,10 @@ mod tests {
                     "^\\$ echo hello 2>&1\nhello\n\n\nExit Code: 0\nDuration: .*$".to_string()))
                 .with_status(200).create();
 
-            let server = mockito::server_url();
-            let mut s = state(&server, "detailed", vec!("echo", "hello"));
+            let mut s = state("detailed", vec!("echo", "hello"));
             s.detailed = true;
 
-            let res = run(s, Client::new());
+            let res = run(s, Agent::new());
             m.assert();
             res.unwrap();
         }
