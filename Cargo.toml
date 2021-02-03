@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Michael Diamond <dimo414@gmail.com>"]
 description = "CLI to execute commands and log results to healthchecks.io"
 repository = "http://github.com/dimo414/task-mon"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 keywords = ["cron", "healthcheck", "healthchecks", "heartbeat", "monitoring"]
 categories = ["command-line-utilities", "development-tools::debugging"]
 edition = "2018"
@@ -12,6 +12,7 @@ include = [
     "**/*.rs",
     "Cargo.*",
     "README.md",
+    "LICENSE",
 ]
 
 [features]
