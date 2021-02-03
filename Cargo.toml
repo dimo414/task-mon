@@ -23,6 +23,7 @@ static_ssl = ['openssl/vendored']
 
 [dependencies]
 clap = { version = "2.33.3", default_features = false, features = ["vec_map"] }
+hostname = "0.3.1"
 subprocess = "0.2.6"
 ureq = { git = "https://github.com/algesten/ureq", branch = "main" }  # waiting for #311 to be released
 

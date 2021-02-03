@@ -65,9 +65,8 @@ fn execute(command: &[impl AsRef<OsStr>], capture_output: bool, verbose: bool) -
 
 /// Constructs a User Agent string for requests to Healthchecks
 fn make_user_agent(custom: Option<&str>) -> String {
-    // Could use https://crates.io/crates/hostname or another crate to get more details
-    let base = match std::env::var("HOSTNAME").ok() {
-        Some(host) => format!("{} - {}", crate_name!(), host),
+    let base = match hostname::get().ok() {
+        Some(host) => format!("{} - {}", crate_name!(), host.to_string_lossy()),
         None => crate_name!().to_string(),
     };
 
@@ -228,12 +227,19 @@ mod tests {
 
     #[test]
     fn agent() {
-        std::env::set_var("HOSTNAME", "host");
-        assert_eq!(make_user_agent(None), format!("{} - host", crate_name!()));
-        assert_eq!(make_user_agent(Some("foo")), format!("foo ({} - host)", crate_name!()));
-        std::env::remove_var("HOSTNAME");
-        assert_eq!(make_user_agent(None), crate_name!());
-        assert_eq!(make_user_agent(Some("foo")), format!("foo ({})", crate_name!()));
+        // This is mostly a change-detector, but it's helpful to validate the expected format
+        match hostname::get().ok() {
+            Some(host) => {
+                assert_eq!(make_user_agent(None),
+                           format!("{} - {}", crate_name!(), host.to_string_lossy()));
+                assert_eq!(make_user_agent(Some("foo")),
+                           format!("foo ({} - {})", crate_name!(), host.to_string_lossy()));
+            },
+            None => {
+                assert_eq!(make_user_agent(None), crate_name!());
+                assert_eq!(make_user_agent(Some("foo")), format!("foo ({})", crate_name!()));
+            },
+        }
     }
 
     #[test]
