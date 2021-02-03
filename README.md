@@ -1,5 +1,10 @@
 # Task Monitoring with Healthchecks.io
 
+[![](https://img.shields.io/crates/v/task-mon.svg)](https://crates.io/crates/task-mon)
+[![](https://img.shields.io/github/workflow/status/dimo414/task-mon/Rust/master)](https://github.com/dimo414/task-mon/actions)
+[![](https://img.shields.io/github/issues/dimo414/task-mon)](https://github.com/dimo414/task-mon/issues)
+
+
 `task-mon` is a small binary for notifying Healthchecks.io when a command runs.
 
 This serves a similar purpose to the `curl`-based patterns described in the Healthchecks
