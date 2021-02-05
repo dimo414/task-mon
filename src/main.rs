@@ -3,7 +3,7 @@
 #[cfg(test)] extern crate parameterized_test;
 
 use std::convert::TryFrom;
-use clap::{Arg, App};
+use clap::{Arg, App, AppSettings};
 use subprocess::{Exec, Redirection, ExitStatus, CaptureData, PopenConfig};
 use std::ffi::OsStr;
 use std::time::{Duration, Instant};
@@ -142,6 +142,8 @@ fn main() {
     let matches = App::new(crate_name!())
         .version(crate_version!())
         .about(crate_description!())
+        .setting(AppSettings::ArgRequiredElseHelp)  // https://github.com/clap-rs/clap/issues/1264
+        .setting(AppSettings::DeriveDisplayOrder)
         .arg(Arg::with_name("uuid")
             .long("uuid")
             .short("k")
@@ -158,6 +160,7 @@ fn main() {
             .help("POST the first 10k bytes instead of the last"))
         .arg(Arg::with_name("ping_only")
             .long("ping_only")
+            .conflicts_with_all(&["detailed", "env"])
             .help("Don't POST any output from the command"))
         .arg(Arg::with_name("detailed")
             .long("detailed")
