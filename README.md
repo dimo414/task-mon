@@ -39,26 +39,26 @@ status and the last 10K of output from the process.
 
 ```shell
 $ task-mon --help
-task-mon 0.1.0
-Execute commands and log results to healthchecks.io
+task-mon 0.2.0
+CLI to execute commands and log results to healthchecks.io
 
 USAGE:
     task-mon [FLAGS] [OPTIONS] --uuid <UUID> [--] <command>...
 
 FLAGS:
-        --detailed      Include execution details in the information POST-ed (by default just sends stdout/err)
-        --env           Also POSTs the process environment; requires --detailed
-    -h, --help          Prints help information
-        --head          POST the first 10k bytes instead of the last
-        --ping_only     Don't POST any output from the command
-    -t, --time          Ping when the program starts as well as completes
-        --user_agent    Customize the user-agent string sent to the Healthchecks.io server
-    -V, --version       Prints version information
-        --verbose       Write debugging details to stderr
+    -t, --time         Ping when the program starts as well as completes
+        --head         POST the first 10k bytes instead of the last
+        --ping_only    Don't POST any output from the command
+        --detailed     Include execution details in the information POST-ed (by default just sends stdout/err)
+        --env          Also POSTs the process environment; requires --detailed
+        --verbose      Write debugging details to stderr
+    -h, --help         Prints help information
+    -V, --version      Prints version information
 
 OPTIONS:
-        --base_url <base_url>    Base URL of the Healthchecks.io server to ping [default: https://hc-ping.com]
-    -k, --uuid <UUID>            Healthchecks.io UUID to ping
+    -k, --uuid <UUID>                Healthchecks.io UUID to ping
+        --user_agent <USER_AGENT>    Customize the user-agent string sent to the Healthchecks.io server
+        --base_url <base_url>        Base URL of the Healthchecks.io server to ping [default: https://hc-ping.com]
 
 ARGS:
     <command>...    The command to run

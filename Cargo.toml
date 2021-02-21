@@ -1,6 +1,6 @@
 [package]
 name = "task-mon"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Michael Diamond <dimo414@gmail.com>"]
 description = "CLI to execute commands and log results to healthchecks.io"
 repository = "http://github.com/dimo414/task-mon"
@@ -25,7 +25,7 @@ static_ssl = ['openssl/vendored']
 clap = { version = "2.33.3", default_features = false, features = ["vec_map"] }
 hostname = "0.3.1"
 subprocess = "0.2.6"
-ureq = { git = "https://github.com/algesten/ureq", branch = "main" }  # waiting for #311 to be released
+ureq = "2.0.2"
 
 [dependencies.openssl]
 optional = true
