@@ -2,11 +2,12 @@
 
 #[cfg(test)] extern crate parameterized_test;
 
-use std::convert::TryFrom;
 use clap::{Arg, App, AppSettings};
-use subprocess::{Exec, Redirection, ExitStatus, CaptureData, PopenConfig};
+use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::time::{Duration, Instant};
+use subprocess::{Exec, Redirection, ExitStatus, CaptureData, PopenConfig};
 use ureq::{Agent, AgentBuilder, Error, Response};
 
 static MAX_BYTES_TO_POST: usize = 10000; // not 10KB, https://healthchecks.io/docs/attaching_logs/
@@ -85,8 +86,8 @@ fn notify_start(agent: &Agent, verbose: bool, base_url: &str, uuid: &str) -> Res
 
 /// Pings the Healthchecks server to notify that the task denoted by the UUID is done.
 /// If code is non-zero, the task will be considered failed.
-fn notify_complete(agent: &Agent, verbose: bool, base_url: &str, uuid: &str, code: u8, output: &str) -> Result<Response, Error> {
-    let req = agent.post(&format!("{}/{}/{}", base_url, uuid, code));
+fn notify_complete(agent: &Agent, verbose: bool, base_url: &str, uuid: &str, code: Option<u8>, output: &str) -> Result<Response, Error> {
+    let req = agent.post(&format!("{}/{}/{}", base_url, uuid, code.map(|x| x.to_string()).unwrap_or("log".to_string())));
     if verbose { eprintln!("Sending request: {:?}", req); }
     if output.is_empty() {
         req.call()
@@ -100,10 +101,11 @@ struct AppState<'a> {
     time: bool,
     tail: bool,
     capture_output: bool,
+    log: bool,
     detailed: bool,
     env: bool,
     verbose: bool,
-    base_url: std::borrow::Cow<'a, str>,
+    base_url: Cow<'a, str>,
     command: Vec<&'a str>,
 }
 
@@ -131,10 +133,11 @@ fn run(state: AppState, agent: Agent) -> Result<Response, Error> {
     let output =
         if state.tail && output.len() > MAX_BYTES_TO_POST {
             String::from_utf8_lossy(&output.as_bytes()[output.len() - MAX_BYTES_TO_POST..])
-        } else { std::borrow::Cow::Owned(output) };
+        } else { Cow::Owned(output) };
 
     // Trim replacement chars added by from_utf8_lossy since they are multi-byte and can actually
     // increase the length of the string.
+    let code = if state.log { None } else { Some(code) };
     notify_complete(&agent, state.verbose, &state.base_url, state.uuid, code, output.trim_start_matches(|c| c=='�'))
 }
 
@@ -163,6 +166,10 @@ fn main() {
             .long("ping_only")
             .conflicts_with_all(&["detailed", "env"])
             .help("Don't POST any output from the command"))
+        .arg(Arg::with_name("log")
+            .long("log")
+            .help("Log the invocation without signalling success or failure; does not update the check's status")
+            .conflicts_with("time"))
         .arg(Arg::with_name("detailed")
             .long("detailed")
             .help("Include execution details in the information POST-ed (by default just sends stdout/err)"))
@@ -194,10 +201,11 @@ fn main() {
         time: matches.is_present("time"),
         tail: !matches.is_present("head"),
         capture_output: !matches.is_present("ping_only"),
+        log: matches.is_present("log"),
         detailed: matches.is_present("detailed"),
         env: matches.is_present("env"),
         verbose: matches.is_present("verbose"),
-        base_url: std::borrow::Cow::Borrowed(matches.value_of("base_url").expect("Has default")),
+        base_url: Cow::Borrowed(matches.value_of("base_url").expect("Has default")),
         command: matches.values_of("command").expect("Required").collect(),
     };
 
@@ -259,12 +267,16 @@ mod tests {
     fn ping() {
         let suc_m = mockito::mock("POST", "/ping/0").match_body("foo bar").with_status(200).create();
         let fail_m = mockito::mock("POST", "/ping/10").match_body("bar baz").with_status(200).create();
-        let suc_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",0, "foo bar");
-        let fail_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",10, "bar baz");
+        let log_m = mockito::mock("POST", "/ping/log").match_body("bang boom").with_status(200).create();
+        let suc_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",Some(0), "foo bar");
+        let fail_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",Some(10), "bar baz");
+        let log_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",None, "bang boom");
         suc_m.assert();
         fail_m.assert();
+        log_m.assert();
         suc_response.unwrap();
         fail_response.unwrap();
+        log_response.unwrap();
     }
 
     mod integ {
@@ -276,10 +288,11 @@ mod tests {
                 time: false,
                 tail: true,
                 capture_output: true,
+                log: false,
                 detailed: false,
                 env: false,
                 verbose: false,
-                base_url: std::borrow::Cow::Owned(mockito::server_url()),
+                base_url: Cow::Owned(mockito::server_url()),
                 command,
             }
         }
@@ -300,6 +313,19 @@ mod tests {
                 .match_body("failed\n").with_status(200).create();
 
             let s = state("fail", vec!("bash", "-c", "echo failed >&2; exit 5"));
+
+            let res = run(s, Agent::new());
+            m.assert();
+            res.unwrap();
+        }
+
+        #[test]
+        fn log() {
+            let m = mockito::mock("POST", "/cmd/log")
+                .match_body("hello\n").with_status(200).create();
+
+            let mut s = state("cmd", vec!("echo", "hello"));
+            s.log = true;
 
             let res = run(s, Agent::new());
             m.assert();

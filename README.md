@@ -51,6 +51,7 @@ FLAGS:
     -t, --time         Ping when the program starts as well as completes
         --head         POST the first 10k bytes instead of the last
         --ping_only    Don't POST any output from the command
+        --log          Log the invocation without signalling success or failure; does not update the check's status
         --detailed     Include execution details in the information POST-ed (by default just sends stdout/err)
         --env          Also POSTs the process environment; requires --detailed
         --verbose      Write debugging details to stderr
