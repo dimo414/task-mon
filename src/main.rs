@@ -139,6 +139,7 @@ fn run(state: AppState, agent: Agent) -> Result<Response, Error> {
 }
 
 fn main() {
+    // TODO swap to clap 3 and clap-derive
     let matches = App::new(crate_name!())
         .version(crate_version!())
         .about(crate_description!())
@@ -178,6 +179,7 @@ fn main() {
             .help("Customize the user-agent string sent to the Healthchecks.io server"))
         .arg(Arg::with_name("base_url")
             .long("base_url")
+            .env("HEALTHCHECKS_BASE_URL")
             .default_value("https://hc-ping.com")
             .help("Base URL of the Healthchecks.io server to ping"))
         .arg(Arg::with_name("command")

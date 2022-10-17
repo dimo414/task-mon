@@ -60,7 +60,8 @@ FLAGS:
 OPTIONS:
     -k, --uuid <UUID>                Healthchecks.io UUID to ping
         --user_agent <USER_AGENT>    Customize the user-agent string sent to the Healthchecks.io server
-        --base_url <base_url>        Base URL of the Healthchecks.io server to ping [default: https://hc-ping.com]
+        --base_url <base_url>        Base URL of the Healthchecks.io server to ping [env: HEALTHCHECKS_BASE_URL=]
+                                     [default: https://hc-ping.com]
 
 ARGS:
     <command>...    The command to run
