@@ -2,10 +2,10 @@
 
 #[cfg(test)] extern crate parameterized_test;
 
-use clap::{Arg, App, AppSettings};
+use clap::{AppSettings, Parser};
 use std::borrow::Cow;
 use std::convert::TryFrom;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::time::{Duration, Instant};
 use subprocess::{Exec, Redirection, ExitStatus, CaptureData, PopenConfig};
 use ureq::{Agent, AgentBuilder, Error, Response};
@@ -96,32 +96,69 @@ fn notify_complete(agent: &Agent, verbose: bool, base_url: &str, uuid: &str, cod
     }
 }
 
-struct AppState<'a> {
-    uuid: &'a str,
+#[derive(Parser)]
+#[clap(setting = AppSettings::DeriveDisplayOrder)]
+#[clap(setting = AppSettings::ArgRequiredElseHelp)]
+#[clap(about, version)]
+struct Cli {
+    /// Healthchecks.io UUID to ping
+    #[clap(required = true, long, short='k', value_name="UUID")]
+    uuid: String,
+
+    /// Ping when the program starts as well as completes
+    #[clap(long, short='t')]
     time: bool,
-    tail: bool,
-    capture_output: bool,
+
+    /// POST the first 10k bytes instead of the last
+    #[clap(long)]
+    head: bool,
+
+    /// Don't POST any output from the command
+    #[clap(long, conflicts_with_all=&["detailed", "env"])]
+    ping_only: bool,
+
+    /// Log the invocation without signalling success or failure; does not update the check's status
+    #[clap(long, conflicts_with="time")]
     log: bool,
+
+    /// Include execution details in the information POST-ed (by default just sends stdout/err
+    #[clap(long)]
     detailed: bool,
+
+    /// Also POSTs the process environment; requires --detailed
+    #[clap(long, requires="detailed")]
     env: bool,
+
+    /// Write debugging details to stderr
+    #[clap(long)]
     verbose: bool,
-    base_url: Cow<'a, str>,
-    command: Vec<&'a str>,
+
+    /// Customize the user-agent string sent to the Healthchecks.io server
+    #[clap(long, value_name="USER_AGENT")]
+    user_agent: Option<String>,
+
+    /// Base URL of the Healthchecks.io server to ping
+    #[clap(long, env="HEALTHCHECKS_BASE_URL", default_value="https://hc-ping.com")]
+    base_url: String,
+
+    /// The command to run
+    #[clap(required=true, last=true)]
+    command: Vec<OsString>,
 }
 
-fn run(state: AppState, agent: Agent) -> Result<Response, Error> {
-    if state.time {
-        if let Err(e) = notify_start(&agent, state.verbose, &state.base_url, state.uuid) {
+fn run(cli: Cli, agent: Agent) -> Result<Response, Error> {
+    if cli.time {
+        if let Err(e) = notify_start(&agent, cli.verbose, &cli.base_url, &cli.uuid) {
             eprintln!("Failed to send start request: {:?}", e);
         }
     }
-    let (mut output, code, elapsed) = execute(&state.command, state.capture_output, state.verbose);
+    let (mut output, code, elapsed) = execute(&cli.command, !cli.ping_only, cli.verbose);
 
-    if state.detailed {
+    if cli.detailed {
         // We could properly escape command, e.g. with https://crates.io/crates/shell-quote
         output = format!("$ {} 2>&1\n{}\n\nExit Code: {}\nDuration: {:?}",
-                         state.command.join(" "), output, code, elapsed);
-        if state.env {
+                         cli.command.join(OsStr::new(" ")).to_string_lossy(), output, code, elapsed);
+        if cli.env {
             let env_str = PopenConfig::current_env().iter()
                 .map(|(k, v)| format!("{}={}", k.to_string_lossy(), v.to_string_lossy()))
                 .collect::<Vec<_>>().join("\n");
@@ -131,98 +168,39 @@ fn run(state: AppState, agent: Agent) -> Result<Response, Error> {
 
     // If we have too much output safely convert the last 10k bytes into UTF-8
     let output =
-        if state.tail && output.len() > MAX_BYTES_TO_POST {
+        if !cli.head && output.len() > MAX_BYTES_TO_POST {
             String::from_utf8_lossy(&output.as_bytes()[output.len() - MAX_BYTES_TO_POST..])
         } else { Cow::Owned(output) };
 
     // Trim replacement chars added by from_utf8_lossy since they are multi-byte and can actually
     // increase the length of the string.
-    let code = if state.log { None } else { Some(code) };
-    notify_complete(&agent, state.verbose, &state.base_url, state.uuid, code, output.trim_start_matches(|c| c=='�'))
+    let code = if cli.log { None } else { Some(code) };
+    notify_complete(&agent, cli.verbose, &cli.base_url, &cli.uuid, code, output.trim_start_matches(|c| c=='�'))
 }
 
 fn main() {
-    // TODO swap to clap 3 and clap-derive
-    let matches = App::new(crate_name!())
-        .version(crate_version!())
-        .about(crate_description!())
-        .setting(AppSettings::ArgRequiredElseHelp)  // https://github.com/clap-rs/clap/issues/1264
-        .setting(AppSettings::DeriveDisplayOrder)
-        .arg(Arg::with_name("uuid")
-            .long("uuid")
-            .short("k")
-            .value_name("UUID")
-            .required(true)
-            .help("Healthchecks.io UUID to ping")
-            .takes_value(true))
-        .arg(Arg::with_name("time")
-            .long("time")
-            .short("t")
-            .help("Ping when the program starts as well as completes"))
-        .arg(Arg::with_name("head")
-            .long("head")
-            .help("POST the first 10k bytes instead of the last"))
-        .arg(Arg::with_name("ping_only")
-            .long("ping_only")
-            .conflicts_with_all(&["detailed", "env"])
-            .help("Don't POST any output from the command"))
-        .arg(Arg::with_name("log")
-            .long("log")
-            .help("Log the invocation without signalling success or failure; does not update the check's status")
-            .conflicts_with("time"))
-        .arg(Arg::with_name("detailed")
-            .long("detailed")
-            .help("Include execution details in the information POST-ed (by default just sends stdout/err)"))
-        .arg(Arg::with_name("env")
-            .long("env")
-            .requires("detailed")
-            .help("Also POSTs the process environment; requires --detailed"))
-        .arg(Arg::with_name("verbose")
-            .long("verbose")
-            .help("Write debugging details to stderr"))
-        .arg(Arg::with_name("user_agent")
-            .long("user_agent")
-            .value_name("USER_AGENT")
-            .help("Customize the user-agent string sent to the Healthchecks.io server"))
-        .arg(Arg::with_name("base_url")
-            .long("base_url")
-            .env("HEALTHCHECKS_BASE_URL")
-            .default_value("https://hc-ping.com")
-            .help("Base URL of the Healthchecks.io server to ping"))
-        .arg(Arg::with_name("command")
-            .required(true)
-            .multiple(true)
-            .last(true)
-            .help("The command to run"))
-        .get_matches();
-
-    let state = AppState {
-        uuid: matches.value_of("uuid").expect("Required"),
-        time: matches.is_present("time"),
-        tail: !matches.is_present("head"),
-        capture_output: !matches.is_present("ping_only"),
-        log: matches.is_present("log"),
-        detailed: matches.is_present("detailed"),
-        env: matches.is_present("env"),
-        verbose: matches.is_present("verbose"),
-        base_url: Cow::Borrowed(matches.value_of("base_url").expect("Has default")),
-        command: matches.values_of("command").expect("Required").collect(),
-    };
+    let cli = Cli::parse();
 
     // TODO support retries
     // TODO could potentially shrink the binary size further by manually constructing requests with
     // https://doc.rust-lang.org/std/net/struct.TcpStream.html and https://docs.rs/native-tls/
     let agent = AgentBuilder::new()
         .timeout(Duration::from_secs(10)) // https://healthchecks.io/docs/reliability_tips/
-        .user_agent(&make_user_agent(matches.value_of("user_agent")))
+        .user_agent(&make_user_agent(cli.user_agent.as_deref()))
         .build();
 
-    run(state, agent).expect("Failed to reach Healthchecks.io");
+    run(cli, agent).expect("Failed to reach Healthchecks.io");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verify_cli() {
+        use clap::IntoApp;
+        Cli::into_app().debug_assert()
+    }
 
     //
     // NOTE: Mockito's state sometimes leaks across tests, so each test should use a separate
@@ -282,18 +260,19 @@ mod tests {
     mod integ {
         use super::*;
 
-        fn state<'a>(uuid: &'a str, command: Vec<&'a str>) -> AppState<'a> {
-            AppState {
-                uuid,
+        fn fake_cli(uuid: &str, command: &[&str]) -> Cli {
+            Cli {
+                uuid: uuid.into(),
                 time: false,
-                tail: true,
-                capture_output: true,
+                head: false,
+                ping_only: false,
                 log: false,
                 detailed: false,
                 env: false,
                 verbose: false,
-                base_url: Cow::Owned(mockito::server_url()),
-                command,
+                user_agent: None,
+                base_url: mockito::server_url(),
+                command: command.iter().map(OsString::from).collect(),
             }
         }
 
@@ -301,8 +280,8 @@ mod tests {
         fn success() {
             let m = mockito::mock("POST", "/success/0").match_body("hello\n").with_status(200).create();
 
-            let s = state("success", vec!("echo", "hello"));
-            let res = run(s, Agent::new());
+            let cli = fake_cli("success", &["echo", "hello"]);
+            let res = run(cli, Agent::new());
             m.assert();
             res.unwrap();
         }
@@ -312,22 +291,22 @@ mod tests {
             let m = mockito::mock("POST", "/fail/5")
                 .match_body("failed\n").with_status(200).create();
 
-            let s = state("fail", vec!("bash", "-c", "echo failed >&2; exit 5"));
+            let cli = fake_cli("fail", &["bash", "-c", "echo failed >&2; exit 5"]);
 
-            let res = run(s, Agent::new());
+            let res = run(cli, Agent::new());
             m.assert();
             res.unwrap();
         }
 
         #[test]
         fn log() {
-            let m = mockito::mock("POST", "/cmd/log")
+            let m = mockito::mock("POST", "/log/log")
                 .match_body("hello\n").with_status(200).create();
 
-            let mut s = state("cmd", vec!("echo", "hello"));
-            s.log = true;
+            let mut cli = fake_cli("log", &["echo", "hello"]);
+            cli.log = true;
 
-            let res = run(s, Agent::new());
+            let res = run(cli, Agent::new());
             m.assert();
             res.unwrap();
         }
@@ -337,9 +316,9 @@ mod tests {
             // Unused, but necessary to isolate separate tests, per lipanski/mockito#111
             let m = mockito::mock("GET", "/").with_status(500).create();
 
-            let s = state("unreachable", vec!("true"));
+            let cli = fake_cli("unreachable", &["true"]);
 
-            run(s, Agent::new()).expect_err("Should fail.");
+            run(cli, Agent::new()).expect_err("Should fail.");
             m.expect(0);
         }
 
@@ -349,10 +328,10 @@ mod tests {
             let done_m = mockito::mock("POST", "/timed/0")
                 .match_body("hello\n").with_status(200).create();
 
-            let mut s = state("timed", vec!("echo", "hello"));
-            s.time = true;
+            let mut cli = fake_cli("timed", &["echo", "hello"]);
+            cli.time = true;
 
-            let res = run(s, Agent::new());
+            let res = run(cli, Agent::new());
             start_m.assert();
             done_m.assert();
             res.unwrap();
@@ -374,9 +353,9 @@ mod tests {
                 )))
                 .with_status(200).create();
 
-            let s = state("long_output", vec!("echo", &msg));
+            let cli = fake_cli("long_output", &["echo", &msg]);
 
-            let res = run(s, Agent::new());
+            let res = run(cli, Agent::new());
             m.assert();
             res.unwrap();
         }
@@ -386,10 +365,10 @@ mod tests {
             let m = mockito::mock("POST", "/quiet/0")
                 .match_body(mockito::Matcher::Missing).with_status(200).create();
 
-            let mut s = state("quiet", vec!("echo", "quiet!"));
-            s.capture_output = false;
+            let mut cli = fake_cli("quiet", &["echo", "quiet!"]);
+            cli.ping_only = true;
 
-            let res = run(s, Agent::new());
+            let res = run(cli, Agent::new());
             m.assert();
             res.unwrap();
         }
@@ -400,10 +379,10 @@ mod tests {
                     "^\\$ echo hello 2>&1\nhello\n\n\nExit Code: 0\nDuration: .*$".to_string()))
                 .with_status(200).create();
 
-            let mut s = state("detailed", vec!("echo", "hello"));
-            s.detailed = true;
+            let mut cli = fake_cli("detailed", &["echo", "hello"]);
+            cli.detailed = true;
 
-            let res = run(s, Agent::new());
+            let res = run(cli, Agent::new());
             m.assert();
             res.unwrap();
         }

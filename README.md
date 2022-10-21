@@ -45,27 +45,28 @@ task-mon 0.2.0
 CLI to execute commands and log results to healthchecks.io
 
 USAGE:
-    task-mon [FLAGS] [OPTIONS] --uuid <UUID> [--] <command>...
+    task-mon [OPTIONS] --uuid <UUID> [--] <COMMAND>...
 
-FLAGS:
-    -t, --time         Ping when the program starts as well as completes
-        --head         POST the first 10k bytes instead of the last
-        --ping_only    Don't POST any output from the command
-        --log          Log the invocation without signalling success or failure; does not update the check's status
-        --detailed     Include execution details in the information POST-ed (by default just sends stdout/err)
-        --env          Also POSTs the process environment; requires --detailed
-        --verbose      Write debugging details to stderr
-    -h, --help         Prints help information
-    -V, --version      Prints version information
+ARGS:
+    <COMMAND>...    The command to run
 
 OPTIONS:
     -k, --uuid <UUID>                Healthchecks.io UUID to ping
-        --user_agent <USER_AGENT>    Customize the user-agent string sent to the Healthchecks.io server
-        --base_url <base_url>        Base URL of the Healthchecks.io server to ping [env: HEALTHCHECKS_BASE_URL=]
-                                     [default: https://hc-ping.com]
-
-ARGS:
-    <command>...    The command to run
+    -t, --time                       Ping when the program starts as well as completes
+        --head                       POST the first 10k bytes instead of the last
+        --ping-only                  Don't POST any output from the command
+        --log                        Log the invocation without signalling success or failure; does
+                                     not update the check's status
+        --detailed                   Include execution details in the information POST-ed (by
+                                     default just sends stdout/err
+        --env                        Also POSTs the process environment; requires --detailed
+        --verbose                    Write debugging details to stderr
+        --user-agent <USER_AGENT>    Customize the user-agent string sent to the Healthchecks.io
+                                     server
+        --base-url <BASE_URL>        Base URL of the Healthchecks.io server to ping [env:
+                                     HEALTHCHECKS_BASE_URL=] [default: https://hc-ping.com]
+    -h, --help                       Print help information
+    -V, --version                    Print version information
 ```
 
 ## Related projects
