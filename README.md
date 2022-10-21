@@ -45,13 +45,16 @@ task-mon 0.2.0
 CLI to execute commands and log results to healthchecks.io
 
 USAGE:
-    task-mon [OPTIONS] --uuid <UUID> [--] <COMMAND>...
+    task-mon [OPTIONS] <--uuid <UUID>|--slug <SLUG>> [--] <COMMAND>...
 
 ARGS:
     <COMMAND>...    The command to run
 
 OPTIONS:
-    -k, --uuid <UUID>                Healthchecks.io UUID to ping
+    -k, --uuid <UUID>                Check's UUID to ping
+    -s, --slug <SLUG>                Check's slug name to ping, requires also specifying --ping-key
+        --ping-key <PING_KEY>        Check's project ping key, required when using --slug [env:
+                                     HEALTHCHECKS_PING_KEY=]
     -t, --time                       Ping when the program starts as well as completes
         --head                       POST the first 10k bytes instead of the last
         --ping-only                  Don't POST any output from the command

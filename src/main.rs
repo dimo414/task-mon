@@ -2,7 +2,7 @@
 
 #[cfg(test)] extern crate parameterized_test;
 
-use clap::{AppSettings, Parser};
+use clap::{AppSettings, ArgGroup, Parser};
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::ffi::{OsStr, OsString};
@@ -78,16 +78,17 @@ fn make_user_agent(custom: Option<&str>) -> String {
 }
 
 /// Pings the Healthchecks server to notify that the task denoted by the UUID is starting
-fn notify_start(agent: &Agent, verbose: bool, base_url: &str, uuid: &str) -> Result<Response, Error> {
-    let req = agent.get(&format!("{}/{}/start", base_url, uuid));
+fn notify_start(agent: &Agent, verbose: bool, url_prefix: &str) -> Result<Response, Error> {
+    let req = agent.get(&format!("{}/start", url_prefix));
     if verbose { eprintln!("Sending request: {:?}", req); }
     req.call()
 }
 
-/// Pings the Healthchecks server to notify that the task denoted by the UUID is done.
-/// If code is non-zero, the task will be considered failed.
-fn notify_complete(agent: &Agent, verbose: bool, base_url: &str, uuid: &str, code: Option<u8>, output: &str) -> Result<Response, Error> {
-    let req = agent.post(&format!("{}/{}/{}", base_url, uuid, code.map(|x| x.to_string()).unwrap_or("log".to_string())));
+/// Pings the Healthchecks server to notify that the task denoted by the URL prefix is done.
+/// If code is non-zero, the task will be considered failed. If code is None the task will be logged
+/// but not update the check.
+fn notify_complete(agent: &Agent, verbose: bool, url_prefix: &str, code: Option<u8>, output: &str) -> Result<Response, Error> {
+    let req = agent.post(&format!("{}/{}", url_prefix, code.map(|x| x.to_string()).unwrap_or("log".to_string())));
     if verbose { eprintln!("Sending request: {:?}", req); }
     if output.is_empty() {
         req.call()
@@ -97,13 +98,22 @@ fn notify_complete(agent: &Agent, verbose: bool, base_url: &str, uuid: &str, cod
 }
 
 #[derive(Parser)]
+#[clap(about, version)]
 #[clap(setting = AppSettings::DeriveDisplayOrder)]
 #[clap(setting = AppSettings::ArgRequiredElseHelp)]
-#[clap(about, version)]
+#[clap(group(ArgGroup::new("label").required(true)))]
 struct Cli {
-    /// Healthchecks.io UUID to ping
-    #[clap(required = true, long, short='k', value_name="UUID")]
-    uuid: String,
+    /// Check's UUID to ping
+    #[clap(long, short='k', value_name="UUID", group="label")]
+    uuid: Option<String>,
+
+    /// Check's slug name to ping, requires also specifying --ping-key
+    #[clap(long, short='s', value_name="SLUG", group="label", requires="ping-key")]
+    slug: Option<String>,
+
+    /// Check's project ping key, required when using --slug
+    #[clap(long, env="HEALTHCHECKS_PING_KEY", value_name="PING_KEY")]
+    ping_key: Option<String>,
 
     /// Ping when the program starts as well as completes
     #[clap(long, short='t')]
@@ -146,9 +156,24 @@ struct Cli {
     command: Vec<OsString>,
 }
 
+impl Cli {
+    fn url_prefix(&self) -> String {
+        match &self.uuid {
+            Some(uuid) => format!("{}/{}", self.base_url, uuid),
+            None => {
+                // These expect()s should never be hit in practice because clap enforces either
+                // --uuid or --ping_key+--slug.
+                let slug = self.slug.as_ref().expect("BUG: Must provide --uuid or --slug");
+                let ping_key = self.ping_key.as_ref().expect("BUG: Must provide --ping_key with --slug");
+                format!("{}/{}/{}", self.base_url, ping_key, slug)
+            }
+        }
+    }
+}
+
 fn run(cli: Cli, agent: Agent) -> Result<Response, Error> {
     if cli.time {
-        if let Err(e) = notify_start(&agent, cli.verbose, &cli.base_url, &cli.uuid) {
+        if let Err(e) = notify_start(&agent, cli.verbose, &cli.url_prefix()) {
             eprintln!("Failed to send start request: {:?}", e);
         }
     }
@@ -175,7 +200,7 @@ fn run(cli: Cli, agent: Agent) -> Result<Response, Error> {
     // Trim replacement chars added by from_utf8_lossy since they are multi-byte and can actually
     // increase the length of the string.
     let code = if cli.log { None } else { Some(code) };
-    notify_complete(&agent, cli.verbose, &cli.base_url, &cli.uuid, code, output.trim_start_matches(|c| c=='�'))
+    notify_complete(&agent, cli.verbose, &cli.url_prefix(), code, output.trim_start_matches(|c| c=='�'))
 }
 
 fn main() {
@@ -236,7 +261,7 @@ mod tests {
     #[test]
     fn start() {
         let m = mockito::mock("GET", "/start/start").with_status(200).create();
-        let response = notify_start(&Agent::new(), false, &mockito::server_url(), "start");
+        let response = notify_start(&Agent::new(), false, &format!("{}/{}", mockito::server_url(), "start"));
         m.assert();
         response.unwrap();
     }
@@ -246,9 +271,9 @@ mod tests {
         let suc_m = mockito::mock("POST", "/ping/0").match_body("foo bar").with_status(200).create();
         let fail_m = mockito::mock("POST", "/ping/10").match_body("bar baz").with_status(200).create();
         let log_m = mockito::mock("POST", "/ping/log").match_body("bang boom").with_status(200).create();
-        let suc_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",Some(0), "foo bar");
-        let fail_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",Some(10), "bar baz");
-        let log_response = notify_complete(&Agent::new(), false, &mockito::server_url(), "ping",None, "bang boom");
+        let suc_response = notify_complete(&Agent::new(), false, &format!("{}/{}", mockito::server_url(), "ping"),Some(0), "foo bar");
+        let fail_response = notify_complete(&Agent::new(), false, &format!("{}/{}", mockito::server_url(), "ping"),Some(10), "bar baz");
+        let log_response = notify_complete(&Agent::new(), false, &format!("{}/{}", mockito::server_url(), "ping"),None, "bang boom");
         suc_m.assert();
         fail_m.assert();
         log_m.assert();
@@ -262,7 +287,9 @@ mod tests {
 
         fn fake_cli(uuid: &str, command: &[&str]) -> Cli {
             Cli {
-                uuid: uuid.into(),
+                uuid: Some(uuid.into()),
+                slug: None,
+                ping_key: None,
                 time: false,
                 head: false,
                 ping_only: false,
@@ -305,6 +332,21 @@ mod tests {
 
             let mut cli = fake_cli("log", &["echo", "hello"]);
             cli.log = true;
+
+            let res = run(cli, Agent::new());
+            m.assert();
+            res.unwrap();
+        }
+
+        #[test]
+        fn slug() {
+            let m = mockito::mock("POST", "/key/slug/0")
+                .match_body("hello\n").with_status(200).create();
+
+            let mut cli = fake_cli("dont-use", &["echo", "hello"]);
+            cli.uuid = None;
+            cli.ping_key = Some("key".into());
+            cli.slug = Some("slug".into());
 
             let res = run(cli, Agent::new());
             m.assert();
