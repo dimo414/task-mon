@@ -20,6 +20,19 @@ fn truncate_str(s: String, max_len: usize) -> String {
     } else { s }
 }
 
+/// Constructs a User Agent string including the hostname and binary name.
+fn make_user_agent(custom: Option<&str>) -> String {
+    let base = match hostname::get().ok() {
+        Some(host) => format!("{} - {}", crate_name!(), host.to_string_lossy()),
+        None => crate_name!().to_string(),
+    };
+
+    match custom {
+        Some(agent) => format!("{} ({})", agent, base),
+        None => base,
+    }
+}
+
 /// Executes a subprocess, distilling all situations (failures, etc.) to a string of output and an
 /// exit code. This is obviously lossy, but is sufficient for our purposes. Setting verbose=true
 /// will log lost details to stderr.
@@ -64,36 +77,43 @@ fn execute(command: &[impl AsRef<OsStr>], capture_output: bool, verbose: bool) -
     (if capture_output { capture.stdout_str() } else { String::new() }, code, elapsed)
 }
 
-/// Constructs a User Agent string for requests to Healthchecks
-fn make_user_agent(custom: Option<&str>) -> String {
-    let base = match hostname::get().ok() {
-        Some(host) => format!("{} - {}", crate_name!(), host.to_string_lossy()),
-        None => crate_name!().to_string(),
-    };
+struct HCAgent {
+    agent: Agent,
+    verbose: bool,
+    url_prefix: String,
+}
 
-    match custom {
-        Some(agent) => format!("{} ({})", agent, base),
-        None => base,
+impl HCAgent {
+    fn create(cli: &Cli) -> Self {
+        // TODO support retries
+        // TODO could potentially shrink the binary size further by manually constructing requests with
+        // https://doc.rust-lang.org/std/net/struct.TcpStream.html and https://docs.rs/native-tls/
+        let agent = AgentBuilder::new()
+            .timeout(Duration::from_secs(10)) // https://healthchecks.io/docs/reliability_tips/
+            .user_agent(&make_user_agent(cli.user_agent.as_deref()))
+            .build();
+
+        HCAgent { agent, verbose: cli.verbose, url_prefix: cli.url_prefix() }
     }
-}
 
-/// Pings the Healthchecks server to notify that the task denoted by the UUID is starting
-fn notify_start(agent: &Agent, verbose: bool, url_prefix: &str) -> Result<Response, Error> {
-    let req = agent.get(&format!("{}/start", url_prefix));
-    if verbose { eprintln!("Sending request: {:?}", req); }
-    req.call()
-}
-
-/// Pings the Healthchecks server to notify that the task denoted by the URL prefix is done.
-/// If code is non-zero, the task will be considered failed. If code is None the task will be logged
-/// but not update the check.
-fn notify_complete(agent: &Agent, verbose: bool, url_prefix: &str, code: Option<u8>, output: &str) -> Result<Response, Error> {
-    let req = agent.post(&format!("{}/{}", url_prefix, code.map(|x| x.to_string()).unwrap_or("log".to_string())));
-    if verbose { eprintln!("Sending request: {:?}", req); }
-    if output.is_empty() {
+    /// Pings the Healthchecks server to notify that the task denoted by the UUID is starting
+    fn notify_start(&self) -> Result<Response, Error> {
+        let req = self.agent.get(&format!("{}/start", self.url_prefix));
+        if self.verbose { eprintln!("Sending request: {:?}", req); }
         req.call()
-    } else {
-        req.send_string(output)
+    }
+
+    /// Pings the Healthchecks server to notify that the task denoted by the URL prefix is done.
+    /// If code is non-zero, the task will be considered failed. If code is None the task will be logged
+    /// but not update the check.
+    fn notify_complete(&self, code: Option<u8>, output: &str) -> Result<Response, Error> {
+        let req = self.agent.post(&format!("{}/{}", self.url_prefix, code.map(|x| x.to_string()).unwrap_or("log".to_string())));
+        if self.verbose { eprintln!("Sending request: {:?}", req); }
+        if output.is_empty() {
+            req.call()
+        } else {
+            req.send_string(output)
+        }
     }
 }
 
@@ -171,9 +191,9 @@ impl Cli {
     }
 }
 
-fn run(cli: Cli, agent: Agent) -> Result<Response, Error> {
+fn run(cli: Cli, agent: HCAgent) -> Result<Response, Error> {
     if cli.time {
-        if let Err(e) = notify_start(&agent, cli.verbose, &cli.url_prefix()) {
+        if let Err(e) = agent.notify_start() {
             eprintln!("Failed to send start request: {:?}", e);
         }
     }
@@ -200,19 +220,12 @@ fn run(cli: Cli, agent: Agent) -> Result<Response, Error> {
     // Trim replacement chars added by from_utf8_lossy since they are multi-byte and can actually
     // increase the length of the string.
     let code = if cli.log { None } else { Some(code) };
-    notify_complete(&agent, cli.verbose, &cli.url_prefix(), code, output.trim_start_matches(|c| c=='�'))
+    agent.notify_complete(code, output.trim_start_matches(|c| c=='�'))
 }
 
 fn main() {
     let cli = Cli::parse();
-
-    // TODO support retries
-    // TODO could potentially shrink the binary size further by manually constructing requests with
-    // https://doc.rust-lang.org/std/net/struct.TcpStream.html and https://docs.rs/native-tls/
-    let agent = AgentBuilder::new()
-        .timeout(Duration::from_secs(10)) // https://healthchecks.io/docs/reliability_tips/
-        .user_agent(&make_user_agent(cli.user_agent.as_deref()))
-        .build();
+    let agent = HCAgent::create(&cli);
 
     run(cli, agent).expect("Failed to reach Healthchecks.io");
 }
@@ -259,21 +272,14 @@ mod tests {
     }
 
     #[test]
-    fn start() {
-        let m = mockito::mock("GET", "/start/start").with_status(200).create();
-        let response = notify_start(&Agent::new(), false, &format!("{}/{}", mockito::server_url(), "start"));
-        m.assert();
-        response.unwrap();
-    }
-
-    #[test]
     fn ping() {
         let suc_m = mockito::mock("POST", "/ping/0").match_body("foo bar").with_status(200).create();
         let fail_m = mockito::mock("POST", "/ping/10").match_body("bar baz").with_status(200).create();
         let log_m = mockito::mock("POST", "/ping/log").match_body("bang boom").with_status(200).create();
-        let suc_response = notify_complete(&Agent::new(), false, &format!("{}/{}", mockito::server_url(), "ping"),Some(0), "foo bar");
-        let fail_response = notify_complete(&Agent::new(), false, &format!("{}/{}", mockito::server_url(), "ping"),Some(10), "bar baz");
-        let log_response = notify_complete(&Agent::new(), false, &format!("{}/{}", mockito::server_url(), "ping"),None, "bang boom");
+        let agent = HCAgent{ agent: Agent::new(), verbose: false, url_prefix: format!("{}/{}", mockito::server_url(), "ping") };
+        let suc_response = agent.notify_complete(Some(0), "foo bar");
+        let fail_response = agent.notify_complete(Some(10), "bar baz");
+        let log_response = agent.notify_complete(None, "bang boom");
         suc_m.assert();
         fail_m.assert();
         log_m.assert();
@@ -308,7 +314,8 @@ mod tests {
             let m = mockito::mock("POST", "/success/0").match_body("hello\n").with_status(200).create();
 
             let cli = fake_cli("success", &["echo", "hello"]);
-            let res = run(cli, Agent::new());
+            let agent = HCAgent::create(&cli);
+            let res = run(cli, agent);
             m.assert();
             res.unwrap();
         }
@@ -319,10 +326,22 @@ mod tests {
                 .match_body("failed\n").with_status(200).create();
 
             let cli = fake_cli("fail", &["bash", "-c", "echo failed >&2; exit 5"]);
+            let agent = HCAgent::create(&cli);
 
-            let res = run(cli, Agent::new());
+            let res = run(cli, agent);
             m.assert();
             res.unwrap();
+        }
+
+        #[test]
+        fn start() {
+            let m = mockito::mock("GET", "/start/start").with_status(200).create();
+
+            let cli = fake_cli("start", &[""]);
+
+            let response = HCAgent::create(&cli).notify_start();
+            m.assert();
+            response.unwrap();
         }
 
         #[test]
@@ -332,8 +351,9 @@ mod tests {
 
             let mut cli = fake_cli("log", &["echo", "hello"]);
             cli.log = true;
+            let agent = HCAgent::create(&cli);
 
-            let res = run(cli, Agent::new());
+            let res = run(cli, agent);
             m.assert();
             res.unwrap();
         }
@@ -347,8 +367,9 @@ mod tests {
             cli.uuid = None;
             cli.ping_key = Some("key".into());
             cli.slug = Some("slug".into());
+            let agent = HCAgent::create(&cli);
 
-            let res = run(cli, Agent::new());
+            let res = run(cli, agent);
             m.assert();
             res.unwrap();
         }
@@ -359,8 +380,9 @@ mod tests {
             let m = mockito::mock("GET", "/").with_status(500).create();
 
             let cli = fake_cli("unreachable", &["true"]);
+            let agent = HCAgent::create(&cli);
 
-            run(cli, Agent::new()).expect_err("Should fail.");
+            run(cli, agent).expect_err("Should fail.");
             m.expect(0);
         }
 
@@ -372,8 +394,9 @@ mod tests {
 
             let mut cli = fake_cli("timed", &["echo", "hello"]);
             cli.time = true;
+            let agent = HCAgent::create(&cli);
 
-            let res = run(cli, Agent::new());
+            let res = run(cli, agent);
             start_m.assert();
             done_m.assert();
             res.unwrap();
@@ -396,8 +419,9 @@ mod tests {
                 .with_status(200).create();
 
             let cli = fake_cli("long_output", &["echo", &msg]);
+            let agent = HCAgent::create(&cli);
 
-            let res = run(cli, Agent::new());
+            let res = run(cli, agent);
             m.assert();
             res.unwrap();
         }
@@ -409,8 +433,9 @@ mod tests {
 
             let mut cli = fake_cli("quiet", &["echo", "quiet!"]);
             cli.ping_only = true;
+            let agent = HCAgent::create(&cli);
 
-            let res = run(cli, Agent::new());
+            let res = run(cli, agent);
             m.assert();
             res.unwrap();
         }
@@ -423,8 +448,9 @@ mod tests {
 
             let mut cli = fake_cli("detailed", &["echo", "hello"]);
             cli.detailed = true;
+            let agent = HCAgent::create(&cli);
 
-            let res = run(cli, Agent::new());
+            let res = run(cli, agent);
             m.assert();
             res.unwrap();
         }
