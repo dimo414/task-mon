@@ -29,6 +29,10 @@ $ task-mon --uuid 1234-abcd -- some_command --to --monitor
 ```
 
 ```shell
+$ task-mon --ping-key abcd1234 --slug foo -- some_command --to --monitor
+```
+
+```shell
 $ crontab -e
 # m h dom mon dow command
   8 6 * * * /usr/local/cargo/bin/task-mon --uuid 1234-abcd -- some_command --to --monitor
@@ -41,7 +45,7 @@ status and the last 10K of output from the process.
 
 ```shell
 $ task-mon --help
-task-mon 0.2.0
+task-mon 0.3.0
 CLI to execute commands and log results to healthchecks.io
 
 USAGE:

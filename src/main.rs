@@ -107,7 +107,7 @@ impl HCAgent {
     /// If code is non-zero, the task will be considered failed. If code is None the task will be logged
     /// but not update the check.
     fn notify_complete(&self, code: Option<u8>, output: &str) -> Result<Response, Error> {
-        let req = self.agent.post(&format!("{}/{}", self.url_prefix, code.map(|x| x.to_string()).unwrap_or("log".to_string())));
+        let req = self.agent.post(&format!("{}/{}", self.url_prefix, code.map(|x| x.to_string()).unwrap_or_else(|| "log".to_string())));
         if self.verbose { eprintln!("Sending request: {:?}", req); }
         if output.is_empty() {
             req.call()

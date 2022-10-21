@@ -1,6 +1,6 @@
 [package]
 name = "task-mon"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Michael Diamond <dimo414@gmail.com>"]
 description = "CLI to execute commands and log results to healthchecks.io"
 repository = "http://github.com/dimo414/task-mon"
@@ -24,9 +24,9 @@ static_ssl = ['openssl/vendored']
 [dependencies]
 clap = { version = "~3.0", default_features = false, features = ["std", "derive", "env", "cargo"] }
 clap_derive = "~3.0"
-hostname = "0.3.1"
-subprocess = "0.2.6"
-ureq = "2.0.2"
+hostname = "0.3"
+subprocess = "0.2"
+ureq = "2.0"
 
 [dependencies.openssl]
 optional = true
