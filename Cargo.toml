@@ -34,4 +34,4 @@ version = '0.10'
 
 [dev-dependencies]
 mockito = "0.29.0"
-parameterized_test = "0.1"
+parameterized_test = "0.2"

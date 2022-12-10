@@ -18,6 +18,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.66"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "216261ddc8289130e551ddcd5ce8a064710c0d064a4d2895c67151c92b5443f6"
+
+[[package]]
 name = "assert-json-diff"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -390,9 +396,12 @@ dependencies = [
 
 [[package]]
 name = "parameterized_test"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1fc5322b3eee32612f95d7740ca559b42251f3ba6e29862bbf6f1ea854751df"
+checksum = "718554e60527e39d1cad6aefd50ec410927e57b5b5ecefc21c4b1556e496333f"
+dependencies = [
+ "anyhow",
+]
 
 [[package]]
 name = "percent-encoding"
