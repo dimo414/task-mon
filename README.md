@@ -2,7 +2,7 @@
 
 [![github](https://img.shields.io/badge/github-dimo414/task--mon-green?logo=github)](https://github.com/dimo414/task-mon)
 [![crates.io](https://img.shields.io/crates/v/task-mon.svg?logo=rust)](https://crates.io/crates/task-mon)
-[![build status](https://img.shields.io/github/workflow/status/dimo414/task-mon/Rust/master)](https://github.com/dimo414/task-mon/actions)
+[![build status](https://img.shields.io/github/actions/workflow/status/dimo414/task-mon/rust.yml?branch=master)](https://github.com/dimo414/task-mon/actions)
 [![issues](https://img.shields.io/github/issues/dimo414/task-mon)](https://github.com/dimo414/task-mon/issues)
 [![license](https://img.shields.io/github/license/dimo414/task-mon)](https://github.com/dimo414/task-mon/blob/master/LICENSE)
 
