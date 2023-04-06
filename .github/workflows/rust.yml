@@ -24,6 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         arch:
+          - { target: aarch64-unknown-linux-gnu , use-cross: true }
           - { target: arm-unknown-linux-gnueabihf , use-cross: true }
           - { target: i686-unknown-linux-gnu , use-cross: true }
           - { target: x86_64-unknown-linux-gnu }
