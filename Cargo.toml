@@ -1,6 +1,6 @@
 [package]
 name = "task-mon"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Michael Diamond <dimo414@gmail.com>"]
 description = "CLI to execute commands and log results to healthchecks.io"
 repository = "http://github.com/dimo414/task-mon"

@@ -3,6 +3,7 @@
 [![github](https://img.shields.io/badge/github-dimo414/task--mon-green?logo=github)](https://github.com/dimo414/task-mon)
 [![crates.io](https://img.shields.io/crates/v/task-mon.svg?logo=rust)](https://crates.io/crates/task-mon)
 [![build status](https://img.shields.io/github/actions/workflow/status/dimo414/task-mon/rust.yml?branch=master)](https://github.com/dimo414/task-mon/actions)
+[![dependencies](https://img.shields.io/deps-rs/task-mon/latest)](https://deps.rs/crate/task-mon)
 [![issues](https://img.shields.io/github/issues/dimo414/task-mon)](https://github.com/dimo414/task-mon/issues)
 [![license](https://img.shields.io/github/license/dimo414/task-mon)](https://github.com/dimo414/task-mon/blob/master/LICENSE)
 
@@ -45,7 +46,7 @@ status and the last 10K of output from the process.
 
 ```shell
 $ task-mon --help
-task-mon 0.3.0
+task-mon 0.3.1
 CLI to execute commands and log results to healthchecks.io
 
 USAGE:
@@ -78,8 +79,8 @@ OPTIONS:
 
 ## Related projects
 
-There are of course a number of similar projects out there, but I was bored and didn't want to use
-any of them...
+There are, unsurprisingly, of similar projects out there, but I thought it'd be a fun opportunity to write a little
+Rust. And of course I like my API best :)
 
 * [Runitor](https://github.com/bdd/runitor) - linked from the
   [Healthchecks docs](https://healthchecks.io/docs/attaching_logs/)
