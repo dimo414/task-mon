@@ -9,6 +9,7 @@ use std::ffi::{OsStr, OsString};
 use std::time::{Duration, Instant};
 use subprocess::{Exec, Redirection, ExitStatus, CaptureData, PopenConfig};
 use ureq::{Agent, AgentBuilder, Error, Response};
+use uuid::Uuid;
 
 static MAX_BYTES_TO_POST: usize = 10000; // not 10KB, https://healthchecks.io/docs/attaching_logs/
 static MAX_STRING_TO_LOG: usize = 1000;
@@ -96,18 +97,25 @@ impl HCAgent {
         HCAgent { agent, verbose: cli.verbose, url_prefix: cli.url_prefix() }
     }
 
-    /// Pings the Healthchecks server to notify that the task denoted by the UUID is starting
-    fn notify_start(&self) -> Result<Response, Error> {
-        let req = self.agent.get(&format!("{}/start", self.url_prefix));
+    /// Pings the Healthchecks server to notify that the task denoted by the URL prefix is starting
+    /// A run_id UUID is used to associate this event with its completion notification
+    fn notify_start(&self, run_id: Uuid) -> Result<Response, Error> {
+        let url = format!("{}/start?rid={}", self.url_prefix, run_id);
+        let req = self.agent.get(&url);
         if self.verbose { eprintln!("Sending request: {:?}", req); }
         req.call()
     }
 
     /// Pings the Healthchecks server to notify that the task denoted by the URL prefix is done.
+    /// A run_id UUID is used to associated this event with its start notification, if one was sent
     /// If code is non-zero, the task will be considered failed. If code is None the task will be logged
     /// but not update the check.
-    fn notify_complete(&self, code: Option<u8>, output: &str) -> Result<Response, Error> {
-        let req = self.agent.post(&format!("{}/{}", self.url_prefix, code.map(|x| x.to_string()).unwrap_or_else(|| "log".to_string())));
+    fn notify_complete(&self, run_id: Option<Uuid>, code: Option<u8>, output: &str) -> Result<Response, Error> {
+        let mut url = format!("{}/{}", self.url_prefix, code.map(|x| x.to_string()).unwrap_or_else(|| "log".to_string()));
+        if let Some(run_id) = run_id {
+            url = format!("{}?rid={}", url, run_id);
+        }
+        let req = self.agent.post(&url);
         if self.verbose { eprintln!("Sending request: {:?}", req); }
         if output.is_empty() {
             req.call()
@@ -192,8 +200,11 @@ impl Cli {
 }
 
 fn run(cli: Cli, agent: HCAgent) -> Result<Response, Error> {
+    let mut maybe_run_id = None;  // Don't bother reporting a run ID unless we're sending a start ping
     if cli.time {
-        if let Err(e) = agent.notify_start() {
+        let run_id = Uuid::new_v4();
+        maybe_run_id = Some(run_id);
+        if let Err(e) = agent.notify_start(run_id) {
             eprintln!("Failed to send start request: {:?}", e);
         }
     }
@@ -220,7 +231,7 @@ fn run(cli: Cli, agent: HCAgent) -> Result<Response, Error> {
     // Trim replacement chars added by from_utf8_lossy since they are multi-byte and can actually
     // increase the length of the string.
     let code = if cli.log { None } else { Some(code) };
-    agent.notify_complete(code, output.trim_start_matches(|c| c=='�'))
+    agent.notify_complete(maybe_run_id, code, output.trim_start_matches(|c| c=='�'))
 }
 
 fn main() {
@@ -276,16 +287,23 @@ mod tests {
         let suc_m = mockito::mock("POST", "/ping/0").match_body("foo bar").with_status(200).create();
         let fail_m = mockito::mock("POST", "/ping/10").match_body("bar baz").with_status(200).create();
         let log_m = mockito::mock("POST", "/ping/log").match_body("bang boom").with_status(200).create();
+        let runid_m = mockito::mock("POST", "/ping/0")
+            .match_query(mockito::Matcher::Regex("rid=.*".into()))
+            .match_body("run id")
+            .with_status(200).create();
         let agent = HCAgent{ agent: Agent::new(), verbose: false, url_prefix: format!("{}/{}", mockito::server_url(), "ping") };
-        let suc_response = agent.notify_complete(Some(0), "foo bar");
-        let fail_response = agent.notify_complete(Some(10), "bar baz");
-        let log_response = agent.notify_complete(None, "bang boom");
+        let suc_response = agent.notify_complete(None, Some(0), "foo bar");
+        let fail_response = agent.notify_complete(None, Some(10), "bar baz");
+        let log_response = agent.notify_complete(None, None, "bang boom");
+        let runid_response = agent.notify_complete(Some(Uuid::from_u128(1234)), Some(0), "run id");
         suc_m.assert();
         fail_m.assert();
         log_m.assert();
+        runid_m.assert();
         suc_response.unwrap();
         fail_response.unwrap();
         log_response.unwrap();
+        runid_response.unwrap();
     }
 
     mod integ {
@@ -335,11 +353,13 @@ mod tests {
 
         #[test]
         fn start() {
-            let m = mockito::mock("GET", "/start/start").with_status(200).create();
+            let m = mockito::mock("GET", "/start/start")
+                .match_query(mockito::Matcher::Regex("rid=.*".into()))
+                .with_status(200).create();
 
             let cli = fake_cli("start", &[""]);
 
-            let response = HCAgent::create(&cli).notify_start();
+            let response = HCAgent::create(&cli).notify_start(Uuid::from_u128(1234));
             m.assert();
             response.unwrap();
         }
@@ -388,9 +408,13 @@ mod tests {
 
         #[test]
         fn timed() {
-            let start_m = mockito::mock("GET", "/timed/start").with_status(200).create();
+            let start_m = mockito::mock("GET", "/timed/start")
+                .match_query(mockito::Matcher::Regex("rid=.*".into()))
+                .with_status(200).create();
             let done_m = mockito::mock("POST", "/timed/0")
-                .match_body("hello\n").with_status(200).create();
+                .match_query(mockito::Matcher::Regex("rid=.*".into()))
+                .match_body("hello\n")
+                .with_status(200).create();
 
             let mut cli = fake_cli("timed", &["echo", "hello"]);
             cli.time = true;

@@ -22,11 +22,12 @@ include = [
 static_ssl = ['openssl/vendored']
 
 [dependencies]
-clap = { version = "~3.0", default_features = false, features = ["std", "derive", "env", "cargo"] }
+clap = { version = "~3.0", default-features = false, features = ["std", "derive", "env", "cargo"] }
 clap_derive = "~3.0"
 hostname = "0.3"
 subprocess = "0.2"
 ureq = "2.0"
+uuid = { version = "1.17", features = ["v4"] }
 
 [dependencies.openssl]
 optional = true
