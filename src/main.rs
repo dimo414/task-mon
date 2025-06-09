@@ -172,7 +172,7 @@ struct Cli {
     verbose: bool,
 
     /// Customize the user-agent string sent to the Healthchecks.io server
-    #[clap(long, value_name="USER_AGENT")]
+    #[clap(long, env="HEALTHCHECKS_USER_AGENT", value_name="USER_AGENT")]
     user_agent: Option<String>,
 
     /// Base URL of the Healthchecks.io server to ping

@@ -36,7 +36,7 @@ $ task-mon --ping-key abcd1234 --slug foo -- some_command --to --monitor
 ```shell
 $ crontab -e
 # m h dom mon dow command
-  8 6 * * * /usr/local/cargo/bin/task-mon --uuid 1234-abcd -- some_command --to --monitor
+  8 6 * * * /usr/local/cargo/bin/task-mon --uuid 1234-abcd -- /path/to/some_command --to --monitor
 ```
 
 `task-mon` will run the command and ping Healthchecks.io when it completes, reporting the exit
@@ -70,7 +70,7 @@ OPTIONS:
         --env                        Also POSTs the process environment; requires --detailed
         --verbose                    Write debugging details to stderr
         --user-agent <USER_AGENT>    Customize the user-agent string sent to the Healthchecks.io
-                                     server
+                                     server [env: HEALTHCHECKS_USER_AGENT=]
         --base-url <BASE_URL>        Base URL of the Healthchecks.io server to ping [env:
                                      HEALTHCHECKS_BASE_URL=] [default: https://hc-ping.com]
     -h, --help                       Print help information
@@ -79,7 +79,7 @@ OPTIONS:
 
 ## Related projects
 
-There are, unsurprisingly, of similar projects out there, but I thought it'd be a fun opportunity to write a little
+There are, unsurprisingly, a number of similar projects out there, but I thought it'd be a fun opportunity to write a little
 Rust. And of course I like my API best :)
 
 * [Runitor](https://github.com/bdd/runitor) - linked from the
