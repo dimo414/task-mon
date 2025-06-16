@@ -155,11 +155,11 @@ struct Cli {
     #[clap(long, conflicts_with_all=&["detailed", "env"])]
     ping_only: bool,
 
-    /// Log the invocation without signalling success or failure; does not update the check's status
+    /// Log the invocation without signaling success or failure; does not update the check's status
     #[clap(long, conflicts_with="time")]
     log: bool,
 
-    /// Include execution details in the information POST-ed (by default just sends stdout/err
+    /// Include execution details in the information POST-ed (by default just sends stdout/err)
     #[clap(long)]
     detailed: bool,
 

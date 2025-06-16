@@ -46,7 +46,7 @@ status and the last 10K of output from the process.
 
 ```shell
 $ task-mon --help
-task-mon 0.3.1
+task-mon 0.3.2
 CLI to execute commands and log results to healthchecks.io
 
 USAGE:
@@ -63,10 +63,10 @@ OPTIONS:
     -t, --time                       Ping when the program starts as well as completes
         --head                       POST the first 10k bytes instead of the last
         --ping-only                  Don't POST any output from the command
-        --log                        Log the invocation without signalling success or failure; does
+        --log                        Log the invocation without signaling success or failure; does
                                      not update the check's status
         --detailed                   Include execution details in the information POST-ed (by
-                                     default just sends stdout/err
+                                     default just sends stdout/err)
         --env                        Also POSTs the process environment; requires --detailed
         --verbose                    Write debugging details to stderr
         --user-agent <USER_AGENT>    Customize the user-agent string sent to the Healthchecks.io
